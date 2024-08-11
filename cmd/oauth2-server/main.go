@@ -1,16 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/go-oauth2/oauth2/v4/store"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"log"
-	"net/http"
 )
 
 // User holds user information
@@ -26,7 +31,11 @@ func main() {
 	manager := manage.NewDefaultManager()
 
 	// Using JWT tokens
-	manager.MapTokenStorage(store.NewMemoryTokenStore())
+	ts, err := store.NewMemoryTokenStore()
+	if err != nil {
+		log.Fatal(err)
+	}
+	manager.MapTokenStorage(ts)
 	manager.MapAccessGenerate(&JWTAccessGenerate{})
 
 	clientStore := store.NewClientStore()
@@ -86,6 +95,10 @@ func main() {
 
 	// OAuth2 Token URL
 	http.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if r.FormValue("grant_type") != "client_credentials" {
+			http.Error(w, "Invalid grant type", http.StatusBadRequest)
+			return
+		}
 		err := srv.HandleTokenRequest(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -104,14 +117,15 @@ type JWTAccessGenerate struct {
 }
 
 // Token generates a new JWT token
-func (g *JWTAccessGenerate) Token(data *oauth2.GenerateBasic, isGenRefresh bool) (access, refresh string, err error) {
+func (g *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasic, isGenRefresh bool) (access, refresh string, err error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 
+	t := time.Now().UTC()
 	claims := token.Claims.(jwt.MapClaims)
 	claims["sub"] = data.UserID
 	claims["aud"] = data.Client.GetID()
-	claims["iat"] = jwt.NewNumericDate(jwt.TimeFunc())
-	claims["exp"] = jwt.NewNumericDate(jwt.TimeFunc().Add(data.TokenInfo.GetAccessExpiresIn()))
+	claims["iat"] = jwt.NewNumericDate(t)
+	claims["exp"] = jwt.NewNumericDate(t.Add(data.TokenInfo.GetAccessExpiresIn()))
 
 	tokenStr, err := token.SignedString([]byte("secret")) // Change this to a secure secret key
 	if err != nil {
@@ -121,7 +135,7 @@ func (g *JWTAccessGenerate) Token(data *oauth2.GenerateBasic, isGenRefresh bool)
 	return tokenStr, "", nil
 }
 
-func passwordAuthHandler(username, password string) (userID string, err error) {
+func passwordAuthHandler(ctx context.Context, clientID, username, password string) (userID string, err error) {
 	// Simple password authentication, adjust as needed
 	user, ok := users[username]
 	if !ok {
