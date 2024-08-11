@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -44,7 +43,6 @@ func main() {
 	srv := server.NewDefaultServer(manager)
 	srv.SetAllowGetAccessRequest(true)
 	srv.SetClientInfoHandler(server.ClientFormHandler)
-	srv.SetPasswordAuthorizationHandler(passwordAuthHandler)
 	srv.SetInternalErrorHandler(func(err error) (re *errors.Response) {
 		log.Println("Internal Error:", err.Error())
 		return
@@ -133,20 +131,6 @@ func (g *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 	}
 
 	return tokenStr, "", nil
-}
-
-func passwordAuthHandler(ctx context.Context, clientID, username, password string) (userID string, err error) {
-	// Simple password authentication, adjust as needed
-	user, ok := users[username]
-	if !ok {
-		return "", fmt.Errorf("user not found")
-	}
-
-	if user.Secret != password {
-		return "", fmt.Errorf("invalid password")
-	}
-
-	return username, nil
 }
 
 func jwksHandler(w http.ResponseWriter, r *http.Request) {
