@@ -9,10 +9,10 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -189,21 +189,31 @@ func encodeBase64(b []byte) string {
 // loadKeys loads RSA keys from files
 func loadKeys(privateKeyPath, publicKeyPath string) error {
 	// Load private key
-	privKeyData, err := ioutil.ReadFile(privateKeyPath)
+	privKeyData, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return fmt.Errorf("failed to read private key file: %v", err)
 	}
 	privBlock, _ := pem.Decode(privKeyData)
-	if privBlock == nil || privBlock.Type != "RSA PRIVATE KEY" {
+	if privBlock == nil || (privBlock.Type != "RSA PRIVATE KEY" && privBlock.Type != "PRIVATE KEY") {
 		return fmt.Errorf("failed to decode PEM block containing private key")
 	}
-	privateKey, err = x509.ParsePKCS1PrivateKey(privBlock.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse private key: %v", err)
+
+	// Parse PKCS#8 or PKCS#1 format
+	if privBlock.Type == "PRIVATE KEY" {
+		privateKeyInterface, err := x509.ParsePKCS8PrivateKey(privBlock.Bytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse PKCS#8 private key: %v", err)
+		}
+		privateKey = privateKeyInterface.(*rsa.PrivateKey)
+	} else {
+		privateKey, err = x509.ParsePKCS1PrivateKey(privBlock.Bytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse PKCS#1 private key: %v", err)
+		}
 	}
 
 	// Load public key
-	pubKeyData, err := ioutil.ReadFile(publicKeyPath)
+	pubKeyData, err := os.ReadFile(publicKeyPath)
 	if err != nil {
 		return fmt.Errorf("failed to read public key file: %v", err)
 	}
