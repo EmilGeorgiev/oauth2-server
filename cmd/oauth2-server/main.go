@@ -119,10 +119,10 @@ func main() {
 	// OAuth2 Token URL
 	http.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("grant_type") != "client_credentials" {
-			http.Error(w, "Invalid grant type", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Invalid grant type: %s", r.FormValue("grant_type")), http.StatusBadRequest)
 			return
 		}
-		err := srv.HandleTokenRequest(w, r)
+		err = srv.HandleTokenRequest(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
@@ -141,7 +141,7 @@ type JWTAccessGenerate struct {
 
 // Token generates a new JWT token
 func (g *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasic, isGenRefresh bool) (access, refresh string, err error) {
-	token := jwt.New(jwt.SigningMethodHS256)
+	token := jwt.New(jwt.SigningMethodRS256)
 
 	t := time.Now().UTC()
 	claims := token.Claims.(jwt.MapClaims)
