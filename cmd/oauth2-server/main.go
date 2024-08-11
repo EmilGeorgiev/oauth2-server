@@ -2,9 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"flag"
+	"fmt"
+	"io/ioutil"
 	"log"
+	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
@@ -17,6 +26,11 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	privateKey *rsa.PrivateKey
+	publicKey  *rsa.PublicKey
+)
+
 // User holds user information
 type User struct {
 	Username string `json:"username"`
@@ -27,6 +41,17 @@ type User struct {
 var users = make(map[string]*User)
 
 func main() {
+	// Command-line flags for key files
+	privateKeyPath := flag.String("private_key", "private_key.pem", "Path to the RSA private key file")
+	publicKeyPath := flag.String("public_key", "public_key.pem", "Path to the RSA public key file")
+	flag.Parse()
+
+	// Load keys from the provided file paths
+	err := loadKeys(*privateKeyPath, *publicKeyPath)
+	if err != nil {
+		log.Fatalf("Failed to load keys: %v", err)
+	}
+
 	manager := manage.NewDefaultManager()
 
 	// Using JWT tokens
@@ -125,7 +150,7 @@ func (g *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 	claims["iat"] = jwt.NewNumericDate(t)
 	claims["exp"] = jwt.NewNumericDate(t.Add(data.TokenInfo.GetAccessExpiresIn()))
 
-	tokenStr, err := token.SignedString([]byte("secret")) // Change this to a secure secret key
+	tokenStr, err := token.SignedString(privateKey) // Use the RSA private key
 	if err != nil {
 		return "", "", err
 	}
@@ -134,6 +159,10 @@ func (g *JWTAccessGenerate) Token(ctx context.Context, data *oauth2.GenerateBasi
 }
 
 func jwksHandler(w http.ResponseWriter, r *http.Request) {
+	// Convert the RSA public key to the appropriate format
+	n := publicKey.N
+	e := publicKey.E
+
 	keys := struct {
 		Keys []map[string]interface{} `json:"keys"`
 	}{
@@ -143,12 +172,54 @@ func jwksHandler(w http.ResponseWriter, r *http.Request) {
 				"alg": "RS256",
 				"use": "sig",
 				"kid": "1",
-				"n":   "public_key_modulus", // Use the actual modulus of the RSA key
-				"e":   "AQAB",
+				"n":   encodeBase64(n.Bytes()),
+				"e":   encodeBase64(big.NewInt(int64(e)).Bytes()),
 			},
 		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(keys)
+}
+
+func encodeBase64(b []byte) string {
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(b), "=")
+}
+
+// loadKeys loads RSA keys from files
+func loadKeys(privateKeyPath, publicKeyPath string) error {
+	// Load private key
+	privKeyData, err := ioutil.ReadFile(privateKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read private key file: %v", err)
+	}
+	privBlock, _ := pem.Decode(privKeyData)
+	if privBlock == nil || privBlock.Type != "RSA PRIVATE KEY" {
+		return fmt.Errorf("failed to decode PEM block containing private key")
+	}
+	privateKey, err = x509.ParsePKCS1PrivateKey(privBlock.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse private key: %v", err)
+	}
+
+	// Load public key
+	pubKeyData, err := ioutil.ReadFile(publicKeyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read public key file: %v", err)
+	}
+	pubBlock, _ := pem.Decode(pubKeyData)
+	if pubBlock == nil || pubBlock.Type != "PUBLIC KEY" {
+		return fmt.Errorf("failed to decode PEM block containing public key")
+	}
+	pubInterface, err := x509.ParsePKIXPublicKey(pubBlock.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse public key: %v", err)
+	}
+	var ok bool
+	publicKey, ok = pubInterface.(*rsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("not an RSA public key")
+	}
+
+	return nil
 }
