@@ -131,8 +131,8 @@ func main() {
 	// JWKs endpoint
 	http.HandleFunc("/.well-known/jwks.json", jwksHandler)
 
-	log.Println("Server is running on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("Server is running on port 8282...")
+	log.Fatal(http.ListenAndServe(":8282", nil))
 }
 
 // JWTAccessGenerate is a custom token generator
